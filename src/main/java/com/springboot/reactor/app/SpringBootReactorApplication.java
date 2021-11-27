@@ -1,8 +1,10 @@
 package com.springboot.reactor.app;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 import com.springboot.reactor.app.models.Comentarios;
 import com.springboot.reactor.app.models.UsuarioComentarios;
@@ -35,7 +37,10 @@ public class SpringBootReactorApplication implements CommandLineRunner{
 		//testFlatMapUsuarioComentarios();
 		//testZipWithBiFunctionUsuarioComentarios();
 		//testZipWithMonoAndTupleUsuarioComentarios();
-		testZipWithAndRange();
+		//testZipWithAndRange();
+		//testFluxAndInterval();
+		//testFluxAndDelay();
+		testFluxAndInfinityIntervalAndOperationRetryNTimes();
 	}
 	private void testFluxUsuariosFromString(){
 		log.warn("testFluxUsuariosFromString");
@@ -310,6 +315,59 @@ public class SpringBootReactorApplication implements CommandLineRunner{
 				.zipWith(Flux.range(0,4), (fluxJust,fluxRange) ->
 						String.format("fluxRange: %d - fluxJust %d",fluxRange,fluxJust)
 				).subscribe(result -> log.info(result));
+
+	}
+	private void testFluxAndInterval(){
+		log.warn("testFluxAndInterval");
+		//Ejecuta en paralelo durante un tiempo un conjuno de tareas (rango en este ejemplo)
+		Flux<Integer> rangoValores = Flux.range(1,12);
+		Flux<Long> tiempoEjecucion = Flux.interval(Duration.ofSeconds(1));
+		rangoValores.zipWith(tiempoEjecucion,(rango,intervalo) -> rango)
+				.doOnNext(rango -> log.info(rango.toString()))
+				//BlockLast fuerza a esperar la ejecucion en segundo plano
+				//En este ejemplo se está utilizando para analizar la ejecución
+				//Sin esta opcion se imprimirian todos los valores del rango en un
+				//hilo separado y no se mostraria el ejemplo de ejecución
+				.blockLast();
+	}
+	private void testFluxAndDelay(){
+		log.warn("testFluxAndDelay");
+		//Ejecuta en paralelo durante un tiempo un conjuno de tareas (rango en este ejemplo)
+		Flux<Integer> rangoValores = Flux.range(1,12)
+										 .delayElements(Duration.ofSeconds(1))
+				.doOnNext(rango -> log.info(rango.toString()));
+		rangoValores.blockLast();
+
+	}
+	private void testFluxAndInfinityIntervalAndOperationRetryNTimes() throws InterruptedException {
+		log.warn("testFluxAndInfinityInterval");
+		//CountDownLatch es un contador que pone el hilo en espera
+		//hasta que este llega a 0. En este caso se inicializa a 1
+		CountDownLatch latch = new CountDownLatch(1);
+		//El Flux está en loop infinito hasta terminar la tarea
+		Flux.interval(Duration.ofSeconds(1))
+				//Al terminar el Flux decrementamos el contador con doOnTerminate
+				.doOnTerminate(() -> latch.countDown())
+
+				//Con flatMap controlamos el bucle infinito para tener un limite de tiempo
+				.flatMap(i -> {
+					//Control de reintentos para la operacion.
+					if(i >= 5){
+						//Retornamos una excepcion para invocar el doOnTerminate
+						return Flux.error(new InterruptedException("El tiempo de espera permitido se ha superado."));
+					}
+					//Continua intentando la operacion
+					return Flux.just(i);
+				})
+				.map(i -> "Intervalo/Reintento -> ".concat(i.toString()))
+				//Con retry podemos forzar a reintentar la operacion n veces
+				//Por si esta falla y es necesario volver a lanzarla
+				.retry(2)
+				.subscribe(successMsg -> log.info(successMsg),exception -> log.error(exception.getMessage()));
+		//Esperamos a que el contador del CountDownLatch llegue a 0
+		//y mientras dejamos el hilo bloqueado/en espera.
+		latch.await();
+
 
 	}
 
