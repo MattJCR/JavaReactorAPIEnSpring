@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.CountDownLatch;
 
 import com.springboot.reactor.app.models.Comentarios;
@@ -40,7 +42,8 @@ public class SpringBootReactorApplication implements CommandLineRunner{
 		//testZipWithAndRange();
 		//testFluxAndInterval();
 		//testFluxAndDelay();
-		testFluxAndInfinityIntervalAndOperationRetryNTimes();
+		//testFluxAndInfinityIntervalAndOperationRetryNTimes();
+		testFluxIntervalFromCreate();
 	}
 	private void testFluxUsuariosFromString(){
 		log.warn("testFluxUsuariosFromString");
@@ -370,7 +373,44 @@ public class SpringBootReactorApplication implements CommandLineRunner{
 
 
 	}
+	private void testFluxIntervalFromCreate(){
+		log.warn("testFluxIntervalFromCreate");
+		//Creamos un observable desde 0
+		Flux.create(emmiter ->{
+			Timer timer = new Timer();
+			//Tiempo de espera para la ejecucion
+			long firstTime = Duration.ofSeconds(1).toMillis();
+			//Asignamos periodo de tiempo para repetir la tarea
+			long period  = Duration.ofSeconds(1).toMillis();
+			//Emulamos una tarea con TimerTask
+			TimerTask task = new TimerTask() {
+				private Integer counter = 0;
+				@Override
+				public void run() {
+					emmiter.next(counter += 1);
+					//Paramos la ejecucion
+					if(counter >= 5){
+						//Primero cancelamos el timer
+						timer.cancel();
+						//Despues emitimos que la tarea se ha completado
+						emmiter.complete();
+					}
+					//Simulamos un error
+					/*if(counter == 3){
+						timer.cancel();
+						emmiter.error(new InterruptedException("Emmiter: Error en la ejecucion."));
+					}*/
+				}
+			};
+			//Construimos la tarea programada con el intervalo de espera
+			//y el periodo en el que se va a ejecutar (Cada segundo).
+			timer.schedule(task,firstTime,period);
+		}).subscribe(
+				nextIntegerValue -> log.info("Counter: " + nextIntegerValue.toString()),
+				onError -> log.error(onError.getMessage()),
+				() -> log.info("Task contador onComplete."));
 
+	}
 
 	
 
