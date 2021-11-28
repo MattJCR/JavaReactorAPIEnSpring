@@ -10,6 +10,8 @@ import java.util.concurrent.CountDownLatch;
 
 import com.springboot.reactor.app.models.Comentarios;
 import com.springboot.reactor.app.models.UsuarioComentarios;
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -43,7 +45,8 @@ public class SpringBootReactorApplication implements CommandLineRunner{
 		//testFluxAndInterval();
 		//testFluxAndDelay();
 		//testFluxAndInfinityIntervalAndOperationRetryNTimes();
-		testFluxIntervalFromCreate();
+		//testFluxIntervalFromCreate();
+		testFluxRangeLimitExecution();
 	}
 	private void testFluxUsuariosFromString(){
 		log.warn("testFluxUsuariosFromString");
@@ -409,6 +412,65 @@ public class SpringBootReactorApplication implements CommandLineRunner{
 				nextIntegerValue -> log.info("Counter: " + nextIntegerValue.toString()),
 				onError -> log.error(onError.getMessage()),
 				() -> log.info("Task contador onComplete."));
+
+	}
+	private void testFluxRangeLimitExecution(){
+		log.warn("testFluxRangeLimitExecution");
+		//Creamos un rango para limitar su ejecucion simultanea
+		Flux.range(1,10)
+				//con log podemos ver la traza completa del Flux
+				.log()
+				.doOnComplete(() -> log.info("Finaliza subscribe personalizado."))
+				.subscribe(
+						//Creamos el subscriber para modificalo a nuestro gusto
+						new Subscriber<Integer>() {
+							private Subscription subscription;
+							private Integer limiteDeProcesos = 2;
+							private Integer procesosTerminados = 0;
+
+							//Como es una interfaz debemos de reescribir la funcionalidad
+							//Esto seria util si lo implementamos en una clase
+							@Override
+							public void onSubscribe(Subscription s) {
+								this.subscription = s;
+								//Al obtener la subscripcion podemos modificar
+								//el numero de peticiones simultaneas que queremos
+								//realizar para no sobrecargar el procesador
+								subscription.request(limiteDeProcesos);
+							}
+
+							@Override
+							public void onNext(Integer integer) {
+								log.info("onNextValue: ".concat(integer.toString()));
+								//Controlamos cuantos procesos se han terminado
+								procesosTerminados++;
+								if(procesosTerminados >= limiteDeProcesos){
+									//Si se han terminado los procesos marcados por el limite
+									//Reiniciamos el contador y volvemos a pedir otra partida
+									//de procesos para ejecutarlos.
+									procesosTerminados = 0;
+									subscription.request(limiteDeProcesos);
+								}
+							}
+
+							@Override
+							public void onError(Throwable t) {
+
+							}
+
+							@Override
+							public void onComplete() {
+
+							}
+						}
+				);
+		//Podemos simplificar lo anterior si no necesitamos tanta personalizacion
+		//Para eso utilizamos el operador limitRate y pasamos el limite
+		Flux.range(1,10)
+				.log()
+				.limitRate(3)
+				.doOnComplete(() -> log.info("Finaliza subscribe con limitRate."))
+				.subscribe();
 
 	}
 
